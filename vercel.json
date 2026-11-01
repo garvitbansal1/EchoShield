@@ -18,11 +18,11 @@
       "destination": "/api/index.py"
     },
     {
-      "source": "/analyze",
+      "source": "/analyze-audio",
       "destination": "/api/index.py"
     },
     {
-      "source": "/analyze-audio",
+      "source": "/analyze",
       "destination": "/api/index.py"
     },
     {

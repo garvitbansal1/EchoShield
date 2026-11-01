@@ -31,7 +31,7 @@ _db_initialized = False
 
 
 @app.middleware("http")
-async def ensure_db_middleware(request, call_next):
+async def ensure_db_and_routing_middleware(request, call_next):
     global _db_initialized
     if not _db_initialized:
         try:
@@ -39,6 +39,19 @@ async def ensure_db_middleware(request, call_next):
         except Exception:
             pass
         _db_initialized = True
+
+    # Normalize Vercel serverless rewritten paths
+    matched_path = request.headers.get("x-matched-path")
+    if matched_path:
+        clean_path = matched_path.split("?")[0]
+        curr_path = request.scope.get("path", "")
+        if curr_path in ["/api/index.py", "/api", "/api/"]:
+            request.scope["path"] = clean_path
+        elif clean_path in ["/analyze-audio", "/stream-audio", "/analyze", "/call-logs", "/stats"]:
+            request.scope["path"] = clean_path
+    elif request.scope.get("path", "").endswith("index.py"):
+        request.scope["path"] = request.scope["path"].replace("/index.py", "")
+
     return await call_next(request)
 
 

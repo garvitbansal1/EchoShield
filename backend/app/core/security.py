@@ -84,5 +84,15 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         from app.core.mock_db import MockUser
         user = await MockUser.get(user_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            # Recreate session user from verified JWT payload so stateless serverless instances never 404
+            user = MockUser(
+                user_id=str(user_id),
+                email=payload.get("email", f"user_{str(user_id)[:8]}@echoshield.ai"),
+                username=payload.get("username", "EchoUser"),
+                full_name=payload.get("name", "EchoShield User"),
+            )
+            try:
+                await user.insert()
+            except Exception:
+                pass
     return user
