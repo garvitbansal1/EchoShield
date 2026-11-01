@@ -57,6 +57,13 @@ async def stream_audio_chunk(
         # Audio acoustic feature extraction
         audio_features = extract_audio_features(tmp_path)
 
+        # Harmonize deepfake status with verified ML voice classifier
+        is_ml_ai = (audio_features.get("voice_type") == "AI_GENERATED") or (float(audio_features.get("ai_voice_percentage", 0.0)) >= 50.0)
+        if is_ml_ai:
+            deepfake_result["is_deepfake"] = True
+            deepfake_result["confidence"] = max(float(deepfake_result.get("confidence", 0.0)), float(audio_features.get("ai_voice_probability", 0.85)))
+            deepfake_result["model_verified"] = True
+
         # Scam tactic detection
         scam_result = await detect_scam_tactics(transcript)
 
@@ -178,6 +185,14 @@ async def analyze_uploaded_audio(
             transcript = "[Audio recording received - acoustic analysis processed]"
         deepfake_result = await detect_deepfake(tmp_path, audio_bytes)
         audio_features = extract_audio_features(tmp_path)
+
+        # Harmonize deepfake status with verified ML voice classifier
+        is_ml_ai = (audio_features.get("voice_type") == "AI_GENERATED") or (float(audio_features.get("ai_voice_percentage", 0.0)) >= 50.0)
+        if is_ml_ai:
+            deepfake_result["is_deepfake"] = True
+            deepfake_result["confidence"] = max(float(deepfake_result.get("confidence", 0.0)), float(audio_features.get("ai_voice_probability", 0.85)))
+            deepfake_result["model_verified"] = True
+
         scam_result = await detect_scam_tactics(transcript)
         threat = classify_threat(
             deepfake_confidence=deepfake_result["confidence"],
@@ -283,14 +298,15 @@ async def detect_voice_authenticity_endpoint(
         samples, sr = load_audio_data(audio_path=tmp_path, audio_bytes=audio_bytes)
         duration = (len(samples) / float(sr)) if (samples is not None and sr > 0) else 0.0
 
+        audio_features = extract_audio_features(tmp_path, audio_bytes)
         deepfake_result = await detect_deepfake(tmp_path, audio_bytes)
 
-        ai_pct = float(deepfake_result.get("ai_voice_percentage", 0.0))
-        pr_pct = float(deepfake_result.get("pre_recorded_percentage", 0.0))
-        human_pct = float(deepfake_result.get("human_authenticity_percentage", max(0.0, 100.0 - max(ai_pct, pr_pct))))
-        voice_type = str(deepfake_result.get("voice_type", "NATURAL_HUMAN"))
-        verdict = str(deepfake_result.get("voice_verdict", "Authentic Natural Human Voice"))
-        markers = list(deepfake_result.get("acoustic_markers", []))
+        ai_pct = float(audio_features.get("ai_voice_percentage", deepfake_result.get("ai_voice_percentage", 0.0)))
+        pr_pct = float(audio_features.get("pre_recorded_percentage", deepfake_result.get("pre_recorded_percentage", 0.0)))
+        human_pct = float(audio_features.get("human_authenticity_percentage", max(0.0, 100.0 - max(ai_pct, pr_pct))))
+        voice_type = str(audio_features.get("voice_type", deepfake_result.get("voice_type", "NATURAL_HUMAN")))
+        verdict = str(audio_features.get("voice_verdict", deepfake_result.get("voice_verdict", "Authentic Natural Human Voice")))
+        markers = list(audio_features.get("acoustic_markers", deepfake_result.get("acoustic_markers", [])))
         is_ai = voice_type == "AI_GENERATED" or ai_pct >= 50.0 or bool(deepfake_result.get("is_deepfake", False))
         is_pr = voice_type == "PRE_RECORDED" or pr_pct >= 50.0
 
@@ -303,11 +319,11 @@ async def detect_voice_authenticity_endpoint(
             human_authenticity_percentage=round(human_pct, 1),
             voice_verdict=verdict,
             acoustic_markers=markers,
-            deepfake_confidence=float(deepfake_result.get("confidence", 0.0)),
-            deepfake_verified=bool(deepfake_result.get("model_verified", False)),
+            deepfake_confidence=float(audio_features.get("ai_voice_probability", deepfake_result.get("confidence", 0.0))),
+            deepfake_verified=bool(audio_features.get("model_verified", deepfake_result.get("model_verified", False))),
             duration_seconds=round(duration, 2),
             sample_rate=sr if sr > 0 else 16000,
-            details=deepfake_result.get("metrics", {}),
+            details=audio_features.get("metrics", deepfake_result.get("metrics", {})),
         )
     finally:
         if os.path.exists(tmp_path):

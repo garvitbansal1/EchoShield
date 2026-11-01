@@ -58,6 +58,10 @@ async def ensure_db_and_routing_middleware(request, call_next):
 @app.on_event("startup")
 async def startup_event():
     global _db_initialized
+    # Initialize default deepfake ML model path if trained model checkpoint exists
+    ml_ckpt = os.path.join(os.path.dirname(__file__), "ml", "voice_classifier.pkl")
+    if os.path.exists(ml_ckpt) and not os.environ.get("DEEPFAKE_MODEL_PATH"):
+        os.environ["DEEPFAKE_MODEL_PATH"] = ml_ckpt
     try:
         await connect_db()
         _db_initialized = True

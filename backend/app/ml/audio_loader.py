@@ -174,3 +174,4 @@ def segment_audio(
         start_idx += hop_samples
 
     return segments
+

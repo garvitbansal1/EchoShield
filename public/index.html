@@ -1892,11 +1892,17 @@ function renderAnalysisResult(d, targetId = 'analyze-result') {
   const humanAuthPct = d.human_authenticity_percentage !== undefined ? Number(d.human_authenticity_percentage).toFixed(1) : Math.max(0, 100 - Math.max(Number(aiVoicePct), Number(preRecPct))).toFixed(1);
   const voiceType = d.voice_type || (Number(aiVoicePct) >= 50 || d.is_deepfake ? "AI_GENERATED" : (Number(preRecPct) >= 50 ? "PRE_RECORDED" : "NATURAL_HUMAN"));
 
+  const isAi = (voiceType === 'AI_GENERATED') || (Number(aiVoicePct) >= 50.0) || Boolean(d.is_deepfake) || Boolean(d.is_ai_generated);
+  const isPr = (voiceType === 'PRE_RECORDED') || (Number(preRecPct) >= 50.0) || Boolean(d.is_pre_recorded);
+  const isUncertain = (voiceType === 'UNCERTAIN') || Boolean(d.is_uncertain);
+
   let voiceBadge = '';
-  if (voiceType === 'AI_GENERATED') {
+  if (isAi) {
     voiceBadge = `<span class="voice-badge-pill" style="background:rgba(255,0,85,0.18);border:1px solid #ff0055;color:#ff3366">🤖 AI-GENERATED SYNTHETIC VOICE (${aiVoicePct}%)</span>`;
-  } else if (voiceType === 'PRE_RECORDED') {
+  } else if (isPr) {
     voiceBadge = `<span class="voice-badge-pill" style="background:rgba(255,170,0,0.18);border:1px solid #ffaa00;color:#ffaa00">📼 PRE-RECORDED ROBOCALL (${preRecPct}%)</span>`;
+  } else if (isUncertain) {
+    voiceBadge = `<span class="voice-badge-pill" style="background:rgba(255,183,3,0.18);border:1px solid #ffb703;color:#ffb703">⚠️ UNCERTAIN ACOUSTIC PATTERN (${aiVoicePct}% AI)</span>`;
   } else {
     voiceBadge = `<span class="voice-badge-pill" style="background:rgba(0,255,136,0.12);border:1px solid #00ff88;color:#00ff88">👤 AUTHENTIC NATURAL HUMAN (${humanAuthPct}%)</span>`;
   }
@@ -2308,26 +2314,29 @@ async function handleAudioFileUpload(files, source = 'dashboard') {
       });
       if (voiceRes.ok) {
         const voiceData = await voiceRes.json();
+        const isAi = Boolean(voiceData.is_ai_generated || voiceData.voice_type === 'AI_GENERATED' || (voiceData.ai_voice_percentage && voiceData.ai_voice_percentage >= 50));
+        const isPr = Boolean(voiceData.is_pre_recorded || voiceData.voice_type === 'PRE_RECORDED' || (voiceData.pre_recorded_percentage && voiceData.pre_recorded_percentage >= 50));
+        const isUncertain = Boolean(voiceData.is_uncertain || voiceData.voice_type === 'UNCERTAIN');
         finalData = {
           call_log_id: 'upload-' + Date.now(),
           transcript: `[Audio recording "${file.name}" (${(file.size / 1024).toFixed(1)} KB) - acoustic analysis complete]`,
-          threat_level: voiceData.is_ai_generated ? 'HIGH' : (voiceData.is_pre_recorded ? 'MEDIUM' : 'LOW'),
-          overall_threat_score: voiceData.ai_voice_percentage ? (voiceData.ai_voice_percentage / 100) : 0.15,
-          urgency_detected: false,
-          urgency_score: 0.1,
-          urgency_phrases_found: [],
-          tactics_detected: [],
-          is_deepfake: voiceData.is_ai_generated,
-          deepfake_confidence: (voiceData.ai_voice_percentage || 0) / 100,
+          threat_level: isAi ? 'CRITICAL' : (isPr ? 'MEDIUM' : (isUncertain ? 'SUSPICIOUS' : 'LOW')),
+          overall_threat_score: isAi ? Math.max(0.88, (voiceData.ai_voice_percentage || 88) / 100) : (isPr ? 0.60 : 0.15),
+          urgency_detected: isAi,
+          urgency_score: isAi ? 0.85 : 0.1,
+          urgency_phrases_found: isAi ? ["Synthetic AI voice clone profile detected"] : [],
+          tactics_detected: isAi ? ["AI Voice Cloning / Synthetic Impersonation"] : (isPr ? ["Automated Telephony Broadcast"] : []),
+          is_deepfake: isAi,
+          deepfake_confidence: isAi ? Math.max(0.85, (voiceData.ai_voice_percentage || 85) / 100) : ((voiceData.ai_voice_percentage || 0) / 100),
           ai_voice_percentage: voiceData.ai_voice_percentage,
-          voice_type: voiceData.voice_type,
+          voice_type: isAi ? 'AI_GENERATED' : voiceData.voice_type,
           pre_recorded_probability: (voiceData.pre_recorded_percentage || 0) / 100,
           pre_recorded_percentage: voiceData.pre_recorded_percentage,
           human_authenticity_percentage: voiceData.human_authenticity_percentage,
           voice_verdict: voiceData.voice_verdict,
           acoustic_markers: voiceData.acoustic_markers,
-          negotiator_strategy: voiceData.is_ai_generated 
-            ? "Synthetic voice detected. Verify caller identity using an offline known number before disclosing information." 
+          negotiator_strategy: isAi 
+            ? "CRITICAL ALERT: Synthetic AI voice detected. Verify caller identity using an offline verified phone number before disclosing information." 
             : "No active threat tactics detected in audio recording."
         };
       }
@@ -3017,21 +3026,30 @@ function renderVoiceResult(data) {
   const prPct = (data.pre_recorded_percentage ?? 0).toFixed(1);
   const humanPct = (data.human_authenticity_percentage ?? 100).toFixed(1);
 
+  const isAi = (vType === 'AI_GENERATED') || (Number(aiPct) >= 50.0) || Boolean(data.is_ai_generated);
+  const isPr = (vType === 'PRE_RECORDED') || (Number(prPct) >= 50.0) || Boolean(data.is_pre_recorded);
+  const isUncertain = (vType === 'UNCERTAIN') || Boolean(data.is_uncertain);
+
   let heroBadge = '';
   let heroColor = '#00ff88';
   let heroIcon = '👤';
   let heroTitle = 'AUTHENTIC NATURAL HUMAN VOICE';
 
-  if (vType === 'AI_GENERATED') {
+  if (isAi) {
     heroColor = '#ff0055';
     heroIcon = '🤖';
     heroTitle = 'AI-GENERATED SYNTHETIC VOICE';
     heroBadge = `<span class="voice-badge-pill" style="background:rgba(255,0,85,0.2);border:1px solid #ff0055;color:#ff3366;font-size:13px;padding:6px 14px">🤖 AI-GENERATED SYNTHETIC VOICE (${aiPct}%)</span>`;
-  } else if (vType === 'PRE_RECORDED') {
+  } else if (isPr) {
     heroColor = '#ffaa00';
     heroIcon = '📼';
     heroTitle = 'PRE-RECORDED ROBOCALL / IVR';
     heroBadge = `<span class="voice-badge-pill" style="background:rgba(255,170,0,0.2);border:1px solid #ffaa00;color:#ffaa00;font-size:13px;padding:6px 14px">📼 PRE-RECORDED ROBOCALL (${prPct}%)</span>`;
+  } else if (isUncertain) {
+    heroColor = '#ffb703';
+    heroIcon = '⚠️';
+    heroTitle = 'SUSPICIOUS / UNCERTAIN VOICE PROFILE';
+    heroBadge = `<span class="voice-badge-pill" style="background:rgba(255,183,3,0.2);border:1px solid #ffb703;color:#ffb703;font-size:13px;padding:6px 14px">⚠️ UNCERTAIN ACOUSTIC PATTERN (AI: ${aiPct}%, Natural: ${humanPct}%)</span>`;
   } else {
     heroColor = '#00ff88';
     heroIcon = '👤';

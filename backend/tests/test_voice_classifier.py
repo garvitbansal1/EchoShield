@@ -66,6 +66,23 @@ class TestVoiceClassifierML(unittest.TestCase):
         self.assertGreaterEqual(res["ai_voice_percentage"], 50.0)
         self.assertIn("Likely AI-Generated Voice", res["voice_verdict"])
 
+    def test_classify_modern_neural_tts_scam_sample(self):
+        """Modern neural TTS voice sample must classify as AI_GENERATED with >75% confidence."""
+        ai_dir = os.path.join(DATA_DIR, "ai_generated")
+        if not os.path.exists(ai_dir):
+            self.skipTest("Raw dataset not found")
+
+        neural_files = [f for f in os.listdir(ai_dir) if f.startswith("ai_neural_") and f.endswith(".wav")]
+        if not neural_files:
+            self.skipTest("No modern neural TTS voice samples available")
+
+        sample_path = os.path.join(ai_dir, neural_files[0])
+        res = classify_voice_audio(sample_path)
+        self.assertEqual(res["voice_type"], "AI_GENERATED")
+        self.assertTrue(res["is_ai_generated"])
+        self.assertGreaterEqual(res["ai_voice_percentage"], 75.0)
+        self.assertIn("Likely AI-Generated Voice", res["voice_verdict"])
+
     def test_classify_robocall_ivr_sample(self):
         """FreeSWITCH automated IVR telephony sample must classify as PRE_RECORDED with >50% confidence."""
         ivr_dir = os.path.join(DATA_DIR, "robocall_ivr")
@@ -149,3 +166,4 @@ class TestVoiceClassifierML(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

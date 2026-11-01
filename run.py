@@ -23,6 +23,11 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(os.path.join(backend_dir, ".env"))
 
+# Set default deepfake ML model path if trained model checkpoint exists
+default_model = os.path.join(backend_dir, "app", "ml", "voice_classifier.pkl")
+if os.path.exists(default_model):
+    os.environ.setdefault("DEEPFAKE_MODEL_PATH", default_model)
+
 if __name__ == "__main__":
     print("=" * 65)
     print("[*] EchoShield - Real-Time AI Scammer Interceptor")
