@@ -406,3 +406,4 @@ def load_audio_normalized(file_path: Optional[str] = None, raw_bytes: Optional[b
             pass
 
     return None, target_sr
+

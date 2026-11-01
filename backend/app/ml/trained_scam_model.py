@@ -5,11 +5,18 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Locate the trained model files
+CUR_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 TRAINING_DIR = BACKEND_DIR / "ml_training"
 
-MODEL_PATH = TRAINING_DIR / "scam_classifier.pkl"
-VECTORIZER_PATH = TRAINING_DIR / "tfidf_vectorizer.pkl"
+MODEL_CANDIDATES = [
+    CUR_DIR / "scam_classifier.pkl",
+    TRAINING_DIR / "scam_classifier.pkl",
+]
+VECTORIZER_CANDIDATES = [
+    CUR_DIR / "tfidf_vectorizer.pkl",
+    TRAINING_DIR / "tfidf_vectorizer.pkl",
+]
 
 _model = None
 _vectorizer = None
@@ -19,19 +26,18 @@ def load_trained_model():
     global _model, _vectorizer
 
     if _model is None or _vectorizer is None:
+        model_path = next((p for p in MODEL_CANDIDATES if p.exists()), None)
+        vec_path = next((p for p in VECTORIZER_CANDIDATES if p.exists()), None)
 
-        if not MODEL_PATH.exists():
-            raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
+        if not model_path:
+            raise FileNotFoundError(f"Scam model not found in candidates: {MODEL_CANDIDATES}")
+        if not vec_path:
+            raise FileNotFoundError(f"Vectorizer not found in candidates: {VECTORIZER_CANDIDATES}")
 
-        if not VECTORIZER_PATH.exists():
-            raise FileNotFoundError(
-                f"Vectorizer not found: {VECTORIZER_PATH}"
-            )
+        _model = joblib.load(model_path)
+        _vectorizer = joblib.load(vec_path)
 
-        _model = joblib.load(MODEL_PATH)
-        _vectorizer = joblib.load(VECTORIZER_PATH)
-
-        logger.info("EchoShield trained scam model loaded successfully")
+        logger.info(f"EchoShield trained scam model loaded successfully from {model_path}")
 
     return _model, _vectorizer
 

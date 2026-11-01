@@ -9,47 +9,47 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=api/$1"
     },
     {
       "source": "/auth/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=auth/$1"
     },
     {
       "source": "/stats",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=stats"
     },
     {
       "source": "/call-logs",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=call-logs"
     },
     {
       "source": "/analyze-audio",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=analyze-audio"
     },
     {
       "source": "/detect-voice",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=detect-voice"
     },
     {
       "source": "/analyze",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=analyze"
     },
     {
       "source": "/stream-audio",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=stream-audio"
     },
     {
       "source": "/health",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=health"
     },
     {
       "source": "/docs",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=docs"
     },
     {
       "source": "/openapi.json",
-      "destination": "/api/index.py"
+      "destination": "/api/index.py?path=openapi.json"
     },
     {
       "source": "/web-dashboard/(.*)",
@@ -61,4 +61,3 @@
     }
   ]
 }
-

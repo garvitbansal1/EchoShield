@@ -16,6 +16,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    redirect_slashes=False,
 )
 
 app.add_middleware(
@@ -40,17 +41,39 @@ async def ensure_db_and_routing_middleware(request, call_next):
             pass
         _db_initialized = True
 
-    # Normalize Vercel serverless rewritten paths
-    matched_path = request.headers.get("x-matched-path")
-    if matched_path:
-        clean_path = matched_path.split("?")[0]
-        curr_path = request.scope.get("path", "")
-        if curr_path in ["/api/index.py", "/api", "/api/"]:
-            request.scope["path"] = clean_path
-        elif clean_path in ["/analyze-audio", "/stream-audio", "/detect-voice", "/analyze", "/call-logs", "/stats"]:
-            request.scope["path"] = clean_path
-    elif request.scope.get("path", "").endswith("index.py"):
-        request.scope["path"] = request.scope["path"].replace("/index.py", "")
+    # 1. Resolve path from query parameter (injected by Vercel rewrites: ?path=...)
+    path_param = request.query_params.get("path")
+    if path_param:
+        target_path = "/" + path_param.lstrip("/")
+        request.scope["path"] = target_path
+
+        # Clean 'path' query parameter from request scope to avoid polluting handler arguments
+        try:
+            from urllib.parse import parse_qs, urlencode
+            raw_qs = request.scope.get("query_string", b"").decode("latin-1")
+            if "path=" in raw_qs:
+                params = parse_qs(raw_qs, keep_blank_values=True)
+                params.pop("path", None)
+                request.scope["query_string"] = urlencode(params, doseq=True).encode("latin-1")
+        except Exception:
+            pass
+    else:
+        # 2. Normalize Vercel serverless rewritten paths from proxy headers
+        matched_path = (
+            request.headers.get("x-matched-path")
+            or request.headers.get("x-forwarded-uri")
+            or request.headers.get("x-invoke-path")
+            or request.headers.get("x-original-uri")
+        )
+        if matched_path:
+            clean_path = matched_path.split("?")[0]
+            curr_path = request.scope.get("path", "")
+            if curr_path in ["/api/index.py", "/api", "/api/"]:
+                request.scope["path"] = clean_path
+            elif clean_path in ["/analyze-audio", "/stream-audio", "/detect-voice", "/analyze", "/call-logs", "/stats", "/health", "/docs", "/openapi.json"]:
+                request.scope["path"] = clean_path
+        elif request.scope.get("path", "").endswith("index.py"):
+            request.scope["path"] = request.scope["path"].replace("/index.py", "")
 
     return await call_next(request)
 
@@ -90,6 +113,8 @@ app.include_router(analysis.router, prefix="/api", tags=["Analysis (API)"])
 
 @app.get("/health", tags=["System"])
 @app.get("/api/health", tags=["System"])
+@app.get("/api", tags=["System"])
+@app.get("/api/index.py", tags=["System"])
 async def health_check():
     return {"status": "ok", "service": "EchoShield", "version": "1.0.0"}
 
