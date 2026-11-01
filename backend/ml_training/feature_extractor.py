@@ -1,7 +1,7 @@
 """
 EchoShield Acoustic Feature Extraction Engine.
 
-Extracts an 89-dimensional discriminative acoustic feature representation for
+Extracts an 91-dimensional discriminative acoustic feature representation for
 voice classification across three distinct categories:
   - Class 0: AI_GENERATED (AI cloned voices, synthetic neural TTS, vocoder artifacts)
   - Class 1: ROBOCALL_IVR (Automated announcements, telephony band-limited IVR prompts)
@@ -14,10 +14,22 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 import scipy.signal
-import soundfile as sf
-import librosa
+import scipy.fftpack
 
 logger = logging.getLogger(__name__)
+
+try:
+    import librosa
+    LIBROSA_AVAILABLE = True
+except (ImportError, OSError):
+    LIBROSA_AVAILABLE = False
+
+try:
+    import soundfile as sf
+    SOUNDFILE_AVAILABLE = True
+except (ImportError, OSError):
+    SOUNDFILE_AVAILABLE = False
+
 
 FEATURE_NAMES = (
     [f"mfcc_{i}_mean" for i in range(20)] +
@@ -116,9 +128,117 @@ def fast_pitch_and_prosody(y: np.ndarray, sr: int = 16000) -> Dict[str, float]:
     }
 
 
+def _extract_scipy_features(norm_y: np.ndarray, sr: int = 16000) -> Tuple[Any, ...]:
+    """Lightweight pure scipy/numpy feature extraction when librosa is not installed."""
+    n_fft = 512
+    hop_length = 256
+    _, _, Zxx = scipy.signal.stft(norm_y, fs=sr, nperseg=n_fft, noverlap=n_fft - hop_length, boundary=None)
+    mag = np.abs(Zxx)
+    power = mag ** 2
+    n_freqs = mag.shape[0]
+
+    # MFCCs via Mel filterbank + DCT
+    n_mels = 40
+    low_mel = 0
+    high_mel = 2595 * np.log10(1 + (sr / 2) / 700)
+    mel_pts = np.linspace(low_mel, high_mel, n_mels + 2)
+    hz_pts = 700 * (10 ** (mel_pts / 2595) - 1)
+    bin_pts = np.floor((n_fft + 1) * hz_pts / sr).astype(int)
+
+    fbank = np.zeros((n_mels, n_freqs))
+    for m in range(1, n_mels + 1):
+        f_m_minus = bin_pts[m - 1]
+        f_m = bin_pts[m]
+        f_m_plus = bin_pts[m + 1]
+        for k in range(f_m_minus, f_m):
+            if k < n_freqs and f_m != f_m_minus:
+                fbank[m - 1, k] = (k - bin_pts[m - 1]) / (f_m - f_m_minus)
+        for k in range(f_m, f_m_plus):
+            if k < n_freqs and f_m_plus != f_m:
+                fbank[m - 1, k] = (bin_pts[m + 1] - k) / (f_m_plus - f_m)
+
+    mel_eng = np.dot(fbank, power)
+    mel_eng = np.where(mel_eng == 0, 1e-10, mel_eng)
+    log_mel = np.log(mel_eng)
+    mfcc = scipy.fftpack.dct(log_mel, type=2, axis=0, norm='ortho')[:20]
+    mfcc_mean = np.mean(mfcc, axis=1)
+    mfcc_std = np.std(mfcc, axis=1)
+
+    delta_mfcc = np.diff(mfcc[:10], axis=1) if mfcc.shape[1] > 1 else np.zeros((10, 1))
+    delta_std = np.std(delta_mfcc, axis=1)
+
+    delta2_mfcc = np.diff(delta_mfcc[:5], axis=1) if delta_mfcc.shape[1] > 1 else np.zeros((5, 1))
+    delta2_std = np.std(delta2_mfcc, axis=1)
+
+    freqs = np.linspace(0, sr / 2, n_freqs)
+    total_mag = np.sum(mag, axis=0) + 1e-10
+
+    # Spectral centroid
+    centroid = np.sum(freqs[:, None] * mag, axis=0) / total_mag
+    cent_mean = float(np.mean(centroid))
+    cent_std = float(np.std(centroid))
+
+    # Spectral bandwidth
+    deviation = (freqs[:, None] - centroid[None, :]) ** 2
+    bandwidth = np.sqrt(np.sum(deviation * mag, axis=0) / total_mag)
+    bw_mean = float(np.mean(bandwidth))
+    bw_std = float(np.std(bandwidth))
+
+    # Spectral rolloff
+    cum_power = np.cumsum(power, axis=0)
+    tot_power = cum_power[-1, :] + 1e-10
+    ro85_bins = np.argmax(cum_power >= 0.85 * tot_power, axis=0)
+    ro95_bins = np.argmax(cum_power >= 0.95 * tot_power, axis=0)
+    ro85 = freqs[ro85_bins]
+    ro95 = freqs[ro95_bins]
+    ro85_mean, ro85_std = float(np.mean(ro85)), float(np.std(ro85))
+    ro95_mean, ro95_std = float(np.mean(ro95)), float(np.std(ro95))
+
+    # Spectral flatness
+    geom_mean = np.exp(np.mean(np.log(power + 1e-12), axis=0))
+    arith_mean = np.mean(power, axis=0) + 1e-12
+    flatness = geom_mean / arith_mean
+    flat_mean, flat_std = float(np.mean(flatness)), float(np.std(flatness))
+
+    # Contrast approximation (6 subbands)
+    cont_mean = np.zeros(6, dtype=np.float32)
+    cont_std = np.zeros(6, dtype=np.float32)
+    band_size = n_freqs // 6
+    for b in range(6):
+        b_slice = mag[b * band_size: (b + 1) * band_size, :]
+        if b_slice.shape[0] > 0:
+            peak_val = np.percentile(b_slice, 95, axis=0)
+            valley_val = np.percentile(b_slice, 5, axis=0) + 1e-6
+            c_val = np.log(peak_val / valley_val + 1e-6)
+            cont_mean[b] = float(np.mean(c_val))
+            cont_std[b] = float(np.std(c_val))
+
+    # ZCR
+    if len(norm_y) >= 512:
+        frames = np.lib.stride_tricks.sliding_window_view(norm_y, 512)[::256]
+        zcr_vals = np.mean(np.abs(np.diff(np.signbit(frames), axis=1)), axis=1)
+        zcr_mean = float(np.mean(zcr_vals))
+        zcr_std = float(np.std(zcr_vals))
+        rms_vals = np.sqrt(np.mean(frames ** 2, axis=1))
+        rms_mean = float(np.mean(rms_vals))
+        rms_std = float(np.std(rms_vals))
+        rms_var = float(np.var(rms_vals))
+    else:
+        zcr_mean, zcr_std = 0.05, 0.01
+        rms_mean, rms_std, rms_var = 0.1, 0.02, 0.0004
+
+    return (
+        mfcc_mean, mfcc_std, delta_std, delta2_std,
+        cent_mean, cent_std, bw_mean, bw_std,
+        ro85_mean, ro85_std, ro95_mean, ro95_std,
+        flat_mean, flat_std, cont_mean, cont_std,
+        zcr_mean, zcr_std, rms_mean, rms_std, rms_var
+    )
+
+
 def extract_features_from_audio(y: np.ndarray, sr: int = 16000) -> np.ndarray:
     """
-    Extract the complete 89-dimensional acoustic feature vector from an audio signal.
+    Extract the complete 91-dimensional acoustic feature vector from an audio signal.
     Audio signal MUST be mono float32 at 16000 Hz.
     """
     features = np.zeros(NUM_FEATURES, dtype=np.float32)
@@ -129,64 +249,70 @@ def extract_features_from_audio(y: np.ndarray, sr: int = 16000) -> np.ndarray:
 
     # Ensure peak amplitude normalization
     peak = np.max(np.abs(y))
-    if peak > 0.005:
-        norm_y = y / peak
-    else:
-        norm_y = y
+    norm_y = (y / peak) if peak > 0.005 else y
 
     try:
-        # 1. MFCCs (20 coefficients)
-        mfcc = librosa.feature.mfcc(y=norm_y, sr=sr, n_mfcc=20, n_fft=512, hop_length=256)
-        mfcc_mean = np.mean(mfcc, axis=1)
-        mfcc_std = np.std(mfcc, axis=1)
+        if LIBROSA_AVAILABLE:
+            # 1. MFCCs (20 coefficients)
+            mfcc = librosa.feature.mfcc(y=norm_y, sr=sr, n_mfcc=20, n_fft=512, hop_length=256)
+            mfcc_mean = np.mean(mfcc, axis=1)
+            mfcc_std = np.std(mfcc, axis=1)
 
-        # 2. Delta MFCCs (10 coefficients)
-        delta_mfcc = librosa.feature.delta(mfcc[:10])
-        delta_std = np.std(delta_mfcc, axis=1)
+            # 2. Delta MFCCs (10 coefficients)
+            delta_mfcc = librosa.feature.delta(mfcc[:10])
+            delta_std = np.std(delta_mfcc, axis=1)
 
-        # 3. Delta-Delta MFCCs (5 coefficients)
-        delta2_mfcc = librosa.feature.delta(mfcc[:5], order=2)
-        delta2_std = np.std(delta2_mfcc, axis=1)
+            # 3. Delta-Delta MFCCs (5 coefficients)
+            delta2_mfcc = librosa.feature.delta(mfcc[:5], order=2)
+            delta2_std = np.std(delta2_mfcc, axis=1)
 
-        # 4. Spectral Centroid
-        centroid = librosa.feature.spectral_centroid(y=norm_y, sr=sr, n_fft=512, hop_length=256)
-        cent_mean = float(np.mean(centroid))
-        cent_std = float(np.std(centroid))
+            # 4. Spectral Centroid
+            centroid = librosa.feature.spectral_centroid(y=norm_y, sr=sr, n_fft=512, hop_length=256)
+            cent_mean = float(np.mean(centroid))
+            cent_std = float(np.std(centroid))
 
-        # 5. Spectral Bandwidth
-        bandwidth = librosa.feature.spectral_bandwidth(y=norm_y, sr=sr, n_fft=512, hop_length=256)
-        bw_mean = float(np.mean(bandwidth))
-        bw_std = float(np.std(bandwidth))
+            # 5. Spectral Bandwidth
+            bandwidth = librosa.feature.spectral_bandwidth(y=norm_y, sr=sr, n_fft=512, hop_length=256)
+            bw_mean = float(np.mean(bandwidth))
+            bw_std = float(np.std(bandwidth))
 
-        # 6. Spectral Rolloff (85% and 95%)
-        rolloff_85 = librosa.feature.spectral_rolloff(y=norm_y, sr=sr, roll_percent=0.85, n_fft=512, hop_length=256)
-        ro85_mean = float(np.mean(rolloff_85))
-        ro85_std = float(np.std(rolloff_85))
+            # 6. Spectral Rolloff (85% and 95%)
+            rolloff_85 = librosa.feature.spectral_rolloff(y=norm_y, sr=sr, roll_percent=0.85, n_fft=512, hop_length=256)
+            ro85_mean = float(np.mean(rolloff_85))
+            ro85_std = float(np.std(rolloff_85))
 
-        rolloff_95 = librosa.feature.spectral_rolloff(y=norm_y, sr=sr, roll_percent=0.95, n_fft=512, hop_length=256)
-        ro95_mean = float(np.mean(rolloff_95))
-        ro95_std = float(np.std(rolloff_95))
+            rolloff_95 = librosa.feature.spectral_rolloff(y=norm_y, sr=sr, roll_percent=0.95, n_fft=512, hop_length=256)
+            ro95_mean = float(np.mean(rolloff_95))
+            ro95_std = float(np.std(rolloff_95))
 
-        # 7. Spectral Flatness
-        flatness = librosa.feature.spectral_flatness(y=norm_y, n_fft=512, hop_length=256)
-        flat_mean = float(np.mean(flatness))
-        flat_std = float(np.std(flatness))
+            # 7. Spectral Flatness
+            flatness = librosa.feature.spectral_flatness(y=norm_y, n_fft=512, hop_length=256)
+            flat_mean = float(np.mean(flatness))
+            flat_std = float(np.std(flatness))
 
-        # 8. Spectral Contrast (6 sub-bands, fmin=100)
-        contrast = librosa.feature.spectral_contrast(y=norm_y, sr=sr, n_bands=5, fmin=100.0, n_fft=512, hop_length=256)
-        cont_mean = np.mean(contrast, axis=1)
-        cont_std = np.std(contrast, axis=1)
+            # 8. Spectral Contrast (6 sub-bands, fmin=100)
+            contrast = librosa.feature.spectral_contrast(y=norm_y, sr=sr, n_bands=5, fmin=100.0, n_fft=512, hop_length=256)
+            cont_mean = np.mean(contrast, axis=1)
+            cont_std = np.std(contrast, axis=1)
 
-        # 9. Zero-Crossing Rate
-        zcr = librosa.feature.zero_crossing_rate(norm_y, frame_length=512, hop_length=256)
-        zcr_mean = float(np.mean(zcr))
-        zcr_std = float(np.std(zcr))
+            # 9. Zero-Crossing Rate
+            zcr = librosa.feature.zero_crossing_rate(norm_y, frame_length=512, hop_length=256)
+            zcr_mean = float(np.mean(zcr))
+            zcr_std = float(np.std(zcr))
 
-        # 10. RMS Energy dynamics
-        rms = librosa.feature.rms(y=norm_y, frame_length=512, hop_length=256)
-        rms_mean = float(np.mean(rms))
-        rms_std = float(np.std(rms))
-        rms_var = float(np.var(rms))
+            # 10. RMS Energy dynamics
+            rms = librosa.feature.rms(y=norm_y, frame_length=512, hop_length=256)
+            rms_mean = float(np.mean(rms))
+            rms_std = float(np.std(rms))
+            rms_var = float(np.var(rms))
+        else:
+            (
+                mfcc_mean, mfcc_std, delta_std, delta2_std,
+                cent_mean, cent_std, bw_mean, bw_std,
+                ro85_mean, ro85_std, ro95_mean, ro95_std,
+                flat_mean, flat_std, cont_mean, cont_std,
+                zcr_mean, zcr_std, rms_mean, rms_std, rms_var
+            ) = _extract_scipy_features(norm_y, sr=sr)
 
         # 11. Telephony Band Ratios (via FFT)
         fft_mag = np.abs(np.fft.rfft(norm_y))
@@ -233,72 +359,50 @@ def extract_features_from_audio(y: np.ndarray, sr: int = 16000) -> np.ndarray:
     except Exception as e:
         logger.warning(f"Error during feature extraction: {e}")
 
-    # Sanitize NaNs and Infs
-    features = np.nan_to_num(features, nan=0.0, posinf=1e4, neginf=-1e4)
+    # Ensure no NaN or Inf
+    features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
     return features
 
 
-def load_audio_normalized(
-    file_path: Optional[str] = None,
-    audio_bytes: Optional[bytes] = None,
-    target_sr: int = 16000
-) -> Tuple[Optional[np.ndarray], int]:
-    """
-    Safely load audio from file or bytes across multiple formats:
-    WAV, MP3, OGG, FLAC, M4A, WebM.
-    Converts stereo to mono and resamples to target_sr (16000 Hz).
-    """
-    raw_bytes = audio_bytes
-    if not raw_bytes and file_path and os.path.exists(file_path):
+def load_audio_normalized(file_path: Optional[str] = None, raw_bytes: Optional[bytes] = None, target_sr: int = 16000) -> Tuple[Optional[np.ndarray], int]:
+    """Load and normalize audio from path or byte stream."""
+    if SOUNDFILE_AVAILABLE:
         try:
-            with open(file_path, "rb") as f:
-                raw_bytes = f.read()
-        except Exception as e:
-            logger.warning(f"Failed to read audio file {file_path}: {e}")
-
-    if not raw_bytes or len(raw_bytes) < 44:
-        return None, target_sr
-
-    # 1. Try soundfile (handles WAV, MP3, OGG, FLAC directly)
-    try:
-        data, sr = sf.read(io.BytesIO(raw_bytes), dtype='float32')
-        if data.ndim > 1:
-            data = np.mean(data, axis=1)
-        if sr != target_sr:
-            data = librosa.resample(data, orig_sr=sr, target_sr=target_sr)
-        return data, target_sr
-    except Exception:
-        pass
-
-    # 2. Try file path with soundfile
-    if file_path and os.path.exists(file_path):
-        try:
-            data, sr = sf.read(file_path, dtype='float32')
+            data, sr = sf.read(file_path or io.BytesIO(raw_bytes), dtype='float32')
             if data.ndim > 1:
                 data = np.mean(data, axis=1)
-            if sr != target_sr:
+            if sr != target_sr and LIBROSA_AVAILABLE:
                 data = librosa.resample(data, orig_sr=sr, target_sr=target_sr)
-            return data, target_sr
+            return data.astype(np.float32), target_sr
         except Exception:
             pass
 
-    # 3. Try librosa.load (handles WebM, M4A via ffmpeg/soundfile)
-    try:
-        y, sr = librosa.load(file_path or io.BytesIO(raw_bytes), sr=target_sr, mono=True)
-        return y.astype(np.float32), target_sr
-    except Exception:
-        pass
+    if LIBROSA_AVAILABLE:
+        try:
+            y, sr = librosa.load(file_path or io.BytesIO(raw_bytes), sr=target_sr, mono=True)
+            return y.astype(np.float32), target_sr
+        except Exception:
+            pass
 
-    # 4. Fallback: Parse linear 16-bit PCM if RIFF header or raw stream
-    try:
-        offset = 44 if raw_bytes[:4] == b"RIFF" else 0
-        pcm = raw_bytes[offset:]
-        if len(pcm) % 2 != 0:
-            pcm = pcm[:-1]
-        if len(pcm) >= 160:
-            arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-            return arr, target_sr
-    except Exception as e:
-        logger.warning(f"Linear PCM fallback failed: {e}")
+    # Built-in PCM parser fallback
+    data_bytes = raw_bytes
+    if not data_bytes and file_path and os.path.exists(file_path):
+        try:
+            with open(file_path, "rb") as f:
+                data_bytes = f.read()
+        except Exception:
+            pass
+
+    if data_bytes and len(data_bytes) >= 44:
+        try:
+            offset = 44 if data_bytes[:4] == b"RIFF" else 0
+            pcm = data_bytes[offset:]
+            if len(pcm) % 2 != 0:
+                pcm = pcm[:-1]
+            if len(pcm) >= 160:
+                y = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+                return y, target_sr
+        except Exception:
+            pass
 
     return None, target_sr

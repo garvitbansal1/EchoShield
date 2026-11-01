@@ -1,0 +1,10 @@
+{
+  "name": "echoshield-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo 'EchoShield backend build ready'",
+    "start": "python run.py",
+    "test": "python -m unittest discover -s tests"
+  }
+}

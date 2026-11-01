@@ -1,0 +1,11 @@
+{
+  "name": "echoshield",
+  "version": "1.0.0",
+  "description": "EchoShield - Real-Time AI Scammer Interceptor & Voice Authenticity Platform",
+  "private": true,
+  "scripts": {
+    "build": "echo 'EchoShield build ready'",
+    "start": "python run.py",
+    "test": "python -m unittest discover -s backend/tests"
+  }
+}

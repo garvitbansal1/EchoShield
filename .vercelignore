@@ -6,8 +6,14 @@ flutter-app/
 docker-compose.yml
 backend/Dockerfile
 backend/tests/
+backend/ml_training/data/
+backend/ml_training/*.npz
+backend/ml_training/*.wav
+*.wav
+*.mp3
 __pycache__/
 *.pyc
 venv/
 .venv/
-
+check_statuses.py
+test_*.py

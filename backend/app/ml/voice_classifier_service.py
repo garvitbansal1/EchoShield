@@ -16,13 +16,16 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 
-# Ensure ml_training is on path for feature extractor
 _CUR_DIR = os.path.dirname(os.path.abspath(__file__))
 _ML_TRAIN_DIR = os.path.join(_CUR_DIR, "..", "..", "ml_training")
-if _ML_TRAIN_DIR not in sys.path:
-    sys.path.append(_ML_TRAIN_DIR)
+for p in [_CUR_DIR, _ML_TRAIN_DIR]:
+    if p not in sys.path:
+        sys.path.append(p)
 
-from feature_extractor import extract_features_from_audio, FEATURE_NAMES, NUM_FEATURES
+try:
+    from app.ml.feature_extractor import extract_features_from_audio, FEATURE_NAMES, NUM_FEATURES
+except ImportError:
+    from feature_extractor import extract_features_from_audio, FEATURE_NAMES, NUM_FEATURES
 from app.ml.audio_loader import load_audio, segment_audio
 
 logger = logging.getLogger(__name__)
