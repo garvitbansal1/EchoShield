@@ -106,6 +106,11 @@ class MockCallLog:
         self.negotiator_strategy = kwargs.get('negotiator_strategy', None)
         self.audio_chunks_received = kwargs.get('audio_chunks_received', 0)
         self.alert_sent = kwargs.get('alert_sent', False)
+        self.ai_voice_percentage = kwargs.get('ai_voice_percentage', 0.0)
+        self.voice_type = kwargs.get('voice_type', "NATURAL_HUMAN")
+        self.pre_recorded_probability = kwargs.get('pre_recorded_probability', 0.0)
+        self.voice_verdict = kwargs.get('voice_verdict', None)
+        self.acoustic_markers = kwargs.get('acoustic_markers', [])
 
     async def insert(self):
         """Save call log to mock database."""
@@ -126,6 +131,11 @@ class MockCallLog:
             'negotiator_strategy': self.negotiator_strategy,
             'audio_chunks_received': self.audio_chunks_received,
             'alert_sent': self.alert_sent,
+            'ai_voice_percentage': self.ai_voice_percentage,
+            'voice_type': self.voice_type,
+            'pre_recorded_probability': self.pre_recorded_probability,
+            'voice_verdict': self.voice_verdict,
+            'acoustic_markers': self.acoustic_markers,
         }
 
     async def save(self):
@@ -143,6 +153,11 @@ class MockCallLog:
                 'audio_chunks_received': self.audio_chunks_received,
                 'transcript': self.transcript,
                 'alert_sent': self.alert_sent,
+                'ai_voice_percentage': self.ai_voice_percentage,
+                'voice_type': self.voice_type,
+                'pre_recorded_probability': self.pre_recorded_probability,
+                'voice_verdict': self.voice_verdict,
+                'acoustic_markers': self.acoustic_markers,
             })
         else:
             await self.insert()

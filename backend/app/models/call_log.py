@@ -32,6 +32,11 @@ class CallLog(Document):
     negotiator_strategy: Optional[str] = None
     audio_chunks_received: int = 0
     alert_sent: bool = False
+    ai_voice_percentage: float = 0.0
+    voice_type: str = "NATURAL_HUMAN"
+    pre_recorded_probability: float = 0.0
+    voice_verdict: Optional[str] = None
+    acoustic_markers: List[str] = Field(default_factory=list)
 
     class Settings:
         name = "call_logs"
@@ -53,6 +58,27 @@ class ThreatResult(BaseModel):
     tactics_detected: List[str] = Field(default_factory=list)
     threat_factors: List[str] = Field(default_factory=list)
     deepfake_verified: bool = False
+    ai_voice_percentage: float = 0.0
+    voice_type: str = "NATURAL_HUMAN"
+    pre_recorded_probability: float = 0.0
+    voice_verdict: Optional[str] = None
+    acoustic_markers: List[str] = Field(default_factory=list)
+
+
+class VoiceDetectionResult(BaseModel):
+    is_ai_generated: bool
+    is_pre_recorded: bool
+    voice_type: str
+    ai_voice_percentage: float
+    pre_recorded_percentage: float
+    human_authenticity_percentage: float
+    voice_verdict: str
+    acoustic_markers: List[str] = Field(default_factory=list)
+    deepfake_confidence: float = 0.0
+    deepfake_verified: bool = False
+    duration_seconds: float = 0.0
+    sample_rate: int = 16000
+    details: dict = Field(default_factory=dict)
 
 
 class AudioChunkRequest(BaseModel):

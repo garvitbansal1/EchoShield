@@ -125,6 +125,40 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(len(updated_logs), initial_count + 1)
         self.assertEqual(updated_logs[0]["transcript"], payload["transcript"])
 
+    def test_detect_voice_empty_rejected(self):
+        """POST /detect-voice with empty audio must return 400 Bad Request."""
+        files = {"audio": ("empty.wav", b"", "audio/wav")}
+        response = self.client.post("/detect-voice", files=files)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Empty or invalid audio data", response.json()["detail"])
+
+    def test_detect_voice_tone_analysis(self):
+        """POST /detect-voice with synthetic tone returns voice classification and AI percentage."""
+        import numpy as np
+        import scipy.io.wavfile as wav
+        import io
+
+        buf = io.BytesIO()
+        sr = 16000
+        t = np.linspace(0, 1.0, sr, endpoint=False)
+        tone = (np.sin(2 * np.pi * 440 * t) * 32767 * 0.5).astype(np.int16)
+        wav.write(buf, sr, tone)
+        buf.seek(0)
+
+        files = {"audio": ("tone.wav", buf.read(), "audio/wav")}
+        response = self.client.post("/detect-voice", files=files)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("ai_voice_percentage", data)
+        self.assertIn("voice_type", data)
+        self.assertIn("pre_recorded_percentage", data)
+        self.assertIn("human_authenticity_percentage", data)
+        self.assertIn("voice_verdict", data)
+        self.assertIn("acoustic_markers", data)
+        self.assertIsInstance(data["ai_voice_percentage"], (int, float))
+        self.assertGreaterEqual(data["ai_voice_percentage"], 0.0)
+        self.assertLessEqual(data["ai_voice_percentage"], 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()

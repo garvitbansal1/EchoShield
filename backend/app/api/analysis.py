@@ -121,6 +121,11 @@ async def get_call_logs(
             "transcript": log.transcript,
             "negotiator_strategy": log.negotiator_strategy,
             "caller_number": log.caller_number,
+            "ai_voice_percentage": getattr(log, 'ai_voice_percentage', 0.0),
+            "voice_type": getattr(log, 'voice_type', 'NATURAL_HUMAN'),
+            "pre_recorded_probability": getattr(log, 'pre_recorded_probability', 0.0),
+            "voice_verdict": getattr(log, 'voice_verdict', None),
+            "acoustic_markers": getattr(log, 'acoustic_markers', []),
         }
         for log in logs
     ]

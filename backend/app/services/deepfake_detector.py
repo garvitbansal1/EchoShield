@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
+from app.ml.audio_features import extract_audio_features
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ def _spectrogram_to_tensor(mel_db: np.ndarray) -> "torch.Tensor":
 
 
 def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, Any]:
-    """Synchronous deepfake detection with verified checkpoint checking."""
+    """Synchronous deepfake detection with verified checkpoint checking and acoustic feature analysis."""
     # Validate audio bytes/file first
     if not audio_bytes or len(audio_bytes) < 100 or not os.path.exists(audio_path):
         return {
@@ -149,11 +150,23 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             "status": "invalid_audio",
             "model_verified": False,
             "details": "Audio input is empty or too short for analysis",
+            "ai_voice_percentage": 0.0,
+            "ai_voice_probability": 0.0,
+            "voice_type": "NATURAL_HUMAN",
+            "pre_recorded_probability": 0.0,
+            "pre_recorded_percentage": 0.0,
+            "human_authenticity_percentage": 0.0,
+            "voice_verdict": "Audio input is empty or too short for analysis",
+            "acoustic_markers": [],
+            "metrics": {},
         }
+
+    # Extract acoustic feature signatures (RMS variance, spectral flatness, HF roll-off, etc.)
+    features = extract_audio_features(audio_path=audio_path, audio_bytes=audio_bytes)
 
     model, is_verified = _get_model_status()
 
-    # If no verified checkpoint exists, explicitly report unverified status
+    # If no verified checkpoint exists, report unverified model status while exposing acoustic heuristics
     if not is_verified or model is None:
         return {
             "is_deepfake": False,
@@ -161,6 +174,15 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             "status": "unverified_no_checkpoint",
             "model_verified": False,
             "details": "No trained deepfake model checkpoint loaded. Set DEEPFAKE_MODEL_PATH for verified detection.",
+            "ai_voice_percentage": features.get("ai_voice_percentage", 0.0),
+            "ai_voice_probability": features.get("ai_voice_probability", 0.0),
+            "voice_type": features.get("voice_type", "NATURAL_HUMAN"),
+            "pre_recorded_probability": features.get("pre_recorded_probability", 0.0),
+            "pre_recorded_percentage": features.get("pre_recorded_percentage", 0.0),
+            "human_authenticity_percentage": features.get("human_authenticity_percentage", 100.0),
+            "voice_verdict": features.get("voice_verdict", "Authentic Natural Human Voice"),
+            "acoustic_markers": features.get("acoustic_markers", []),
+            "metrics": features.get("metrics", {}),
         }
 
     try:
@@ -172,6 +194,15 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
                 "status": "invalid_audio",
                 "model_verified": True,
                 "details": "Audio contains insufficient data or could not be loaded",
+                "ai_voice_percentage": features.get("ai_voice_percentage", 0.0),
+                "ai_voice_probability": features.get("ai_voice_probability", 0.0),
+                "voice_type": features.get("voice_type", "NATURAL_HUMAN"),
+                "pre_recorded_probability": features.get("pre_recorded_probability", 0.0),
+                "pre_recorded_percentage": features.get("pre_recorded_percentage", 0.0),
+                "human_authenticity_percentage": features.get("human_authenticity_percentage", 100.0),
+                "voice_verdict": features.get("voice_verdict", "Authentic Natural Human Voice"),
+                "acoustic_markers": features.get("acoustic_markers", []),
+                "metrics": features.get("metrics", {}),
             }
 
         tensor = _spectrogram_to_tensor(mel_db)
@@ -180,6 +211,18 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
 
         threshold = float(os.getenv("DEEPFAKE_THRESHOLD", "0.6"))
         is_deepfake = raw_confidence >= threshold
+
+        # Harmonize CNN model score with acoustic feature analysis
+        ai_prob = max(raw_confidence, features.get("ai_voice_probability", 0.0))
+        ai_pct = round(ai_prob * 100, 1)
+
+        voice_type = features.get("voice_type", "NATURAL_HUMAN")
+        if is_deepfake or ai_prob >= 0.50:
+            voice_type = "AI_GENERATED"
+            voice_verdict = f"Likely AI-Generated Voice ({ai_pct:.0f}% synthetic confidence)"
+        else:
+            voice_verdict = features.get("voice_verdict", "Authentic Natural Human Voice")
+
         logger.info(f"Verified deepfake score: {raw_confidence:.4f}, threshold: {threshold}, is_deepfake: {is_deepfake}")
 
         return {
@@ -188,6 +231,15 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             "status": "verified",
             "model_verified": True,
             "details": f"Model inference completed with threshold {threshold}",
+            "ai_voice_percentage": ai_pct,
+            "ai_voice_probability": round(ai_prob, 4),
+            "voice_type": voice_type,
+            "pre_recorded_probability": features.get("pre_recorded_probability", 0.0),
+            "pre_recorded_percentage": features.get("pre_recorded_percentage", 0.0),
+            "human_authenticity_percentage": round(max(0.0, 100.0 - max(ai_pct, features.get("pre_recorded_percentage", 0.0))), 1),
+            "voice_verdict": voice_verdict,
+            "acoustic_markers": features.get("acoustic_markers", []),
+            "metrics": features.get("metrics", {}),
         }
     except Exception as e:
         logger.error(f"Deepfake detection inference error: {e}")
@@ -197,6 +249,15 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             "status": "error",
             "model_verified": is_verified,
             "details": f"Inference failed: {str(e)}",
+            "ai_voice_percentage": features.get("ai_voice_percentage", 0.0),
+            "ai_voice_probability": features.get("ai_voice_probability", 0.0),
+            "voice_type": features.get("voice_type", "NATURAL_HUMAN"),
+            "pre_recorded_probability": features.get("pre_recorded_probability", 0.0),
+            "pre_recorded_percentage": features.get("pre_recorded_percentage", 0.0),
+            "human_authenticity_percentage": features.get("human_authenticity_percentage", 100.0),
+            "voice_verdict": features.get("voice_verdict", "Authentic Natural Human Voice"),
+            "acoustic_markers": features.get("acoustic_markers", []),
+            "metrics": features.get("metrics", {}),
         }
 
 
@@ -235,3 +296,20 @@ async def detect_deepfake(audio_path: str, audio_bytes: bytes) -> Dict[str, Any]
             "model_verified": False,
             "details": str(e),
         }
+
+
+async def analyze_voice_authenticity(audio_path: str, audio_bytes: bytes = b"") -> Dict[str, Any]:
+    """
+    Complete analysis of voice authenticity.
+    Determines whether audio is AI-generated (synthetic voice/clone),
+    pre-recorded (automated robocall/IVR), or natural human voice,
+    with exact percentage confidence levels.
+    """
+    if not audio_bytes and audio_path and os.path.exists(audio_path):
+        try:
+            with open(audio_path, "rb") as f:
+                audio_bytes = f.read()
+        except Exception:
+            pass
+
+    return await detect_deepfake(audio_path, audio_bytes)

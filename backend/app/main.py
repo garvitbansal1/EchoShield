@@ -47,7 +47,7 @@ async def ensure_db_and_routing_middleware(request, call_next):
         curr_path = request.scope.get("path", "")
         if curr_path in ["/api/index.py", "/api", "/api/"]:
             request.scope["path"] = clean_path
-        elif clean_path in ["/analyze-audio", "/stream-audio", "/analyze", "/call-logs", "/stats"]:
+        elif clean_path in ["/analyze-audio", "/stream-audio", "/detect-voice", "/analyze", "/call-logs", "/stats"]:
             request.scope["path"] = clean_path
     elif request.scope.get("path", "").endswith("index.py"):
         request.scope["path"] = request.scope["path"].replace("/index.py", "")

@@ -22,6 +22,10 @@
       "destination": "/api/index.py"
     },
     {
+      "source": "/detect-voice",
+      "destination": "/api/index.py"
+    },
+    {
       "source": "/analyze",
       "destination": "/api/index.py"
     },

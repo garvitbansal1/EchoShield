@@ -3,14 +3,14 @@ import os
 import tempfile
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from typing import Optional
-from app.core.security import get_current_user
-from app.models.call_log import ThreatResult
+from app.core.security import get_current_user, get_current_user_optional
+from app.models.call_log import ThreatResult, VoiceDetectionResult
 from app.services.transcription import transcribe_audio
 from app.services.deepfake_detector import detect_deepfake
 from app.services.scam_detector import detect_scam_tactics
 from app.services.threat_classifier import classify_threat
 from app.services.negotiator import generate_negotiator_strategy
-from app.ml.audio_features import extract_audio_features
+from app.ml.audio_features import extract_audio_features, load_audio_data
 import logging
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,13 @@ async def stream_audio_chunk(
         # Negotiator strategy
         strategy = await generate_negotiator_strategy(transcript, threat["threat_level"])
 
+        # Acoustic feature extraction and deepfake harmonization
+        ai_voice_pct = deepfake_result.get("ai_voice_percentage", audio_features.get("ai_voice_percentage", 0.0))
+        voice_type = deepfake_result.get("voice_type", audio_features.get("voice_type", "NATURAL_HUMAN"))
+        pre_rec_prob = deepfake_result.get("pre_recorded_probability", audio_features.get("pre_recorded_probability", 0.0))
+        voice_verdict = deepfake_result.get("voice_verdict", audio_features.get("voice_verdict", "Authentic Natural Human Voice"))
+        acoustic_markers = deepfake_result.get("acoustic_markers", audio_features.get("acoustic_markers", []))
+
         # Upsert call log
         if call_id:
             log = await CallLog.get(call_id)
@@ -91,6 +98,11 @@ async def stream_audio_chunk(
         log.negotiator_strategy = strategy
         log.audio_chunks_received = getattr(log, 'audio_chunks_received', 0) + 1
         log.alert_sent = threat["alert_required"]
+        log.ai_voice_percentage = ai_voice_pct
+        log.voice_type = voice_type
+        log.pre_recorded_probability = pre_rec_prob
+        log.voice_verdict = voice_verdict
+        log.acoustic_markers = acoustic_markers
 
         try:
             await log.save()
@@ -109,6 +121,14 @@ async def stream_audio_chunk(
             threat_level=threat["threat_level"],
             negotiator_strategy=strategy,
             alert_required=threat["alert_required"],
+            tactics_detected=scam_result.get("tactics_detected", []),
+            threat_factors=scam_result.get("threat_factors", []),
+            deepfake_verified=deepfake_result.get("model_verified", False),
+            ai_voice_percentage=ai_voice_pct,
+            voice_type=voice_type,
+            pre_recorded_probability=pre_rec_prob,
+            voice_verdict=voice_verdict,
+            acoustic_markers=acoustic_markers,
         )
     finally:
         if os.path.exists(tmp_path):
@@ -155,6 +175,13 @@ async def analyze_uploaded_audio(
         )
         strategy = await generate_negotiator_strategy(transcript, threat["threat_level"])
 
+        # Acoustic feature extraction and deepfake harmonization
+        ai_voice_pct = deepfake_result.get("ai_voice_percentage", audio_features.get("ai_voice_percentage", 0.0))
+        voice_type = deepfake_result.get("voice_type", audio_features.get("voice_type", "NATURAL_HUMAN"))
+        pre_rec_prob = deepfake_result.get("pre_recorded_probability", audio_features.get("pre_recorded_probability", 0.0))
+        voice_verdict = deepfake_result.get("voice_verdict", audio_features.get("voice_verdict", "Authentic Natural Human Voice"))
+        acoustic_markers = deepfake_result.get("acoustic_markers", audio_features.get("acoustic_markers", []))
+
         log = CallLog(
             user_id=str(current_user.id),
             caller_number=caller_number,
@@ -169,6 +196,11 @@ async def analyze_uploaded_audio(
             negotiator_strategy=strategy,
             audio_chunks_received=1,
             alert_sent=threat["alert_required"],
+            ai_voice_percentage=ai_voice_pct,
+            voice_type=voice_type,
+            pre_recorded_probability=pre_rec_prob,
+            voice_verdict=voice_verdict,
+            acoustic_markers=acoustic_markers,
         )
         try:
             await log.insert()
@@ -187,6 +219,70 @@ async def analyze_uploaded_audio(
             threat_level=threat["threat_level"],
             negotiator_strategy=strategy,
             alert_required=threat["alert_required"],
+            tactics_detected=scam_result.get("tactics_detected", []),
+            threat_factors=scam_result.get("threat_factors", []),
+            deepfake_verified=deepfake_result.get("model_verified", False),
+            ai_voice_percentage=ai_voice_pct,
+            voice_type=voice_type,
+            pre_recorded_probability=pre_rec_prob,
+            voice_verdict=voice_verdict,
+            acoustic_markers=acoustic_markers,
+        )
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@router.post("/detect-voice", response_model=VoiceDetectionResult)
+async def detect_voice_authenticity_endpoint(
+    audio: UploadFile = File(...),
+    current_user = Depends(get_current_user_optional),
+):
+    """
+    Test whether audio is AI-generated (voice clone/TTS synthetic),
+    pre-recorded (automated robocall/IVR), or authentic natural human voice.
+    Returns explicit % levels of AI voice, pre-recorded voice, and natural authenticity.
+    """
+    audio_bytes = await audio.read()
+    if not audio_bytes or len(audio_bytes) < 44:
+        raise HTTPException(status_code=400, detail="Empty or invalid audio data received")
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        samples, sr = load_audio_data(audio_path=tmp_path, audio_bytes=audio_bytes)
+        duration = (len(samples) / float(sr)) if (samples is not None and sr > 0) else 0.0
+
+        deepfake_result = await detect_deepfake(tmp_path, audio_bytes)
+
+        ai_pct = float(deepfake_result.get("ai_voice_percentage", 0.0))
+        pr_pct = float(deepfake_result.get("pre_recorded_percentage", 0.0))
+        human_pct = float(deepfake_result.get("human_authenticity_percentage", max(0.0, 100.0 - max(ai_pct, pr_pct))))
+        voice_type = str(deepfake_result.get("voice_type", "NATURAL_HUMAN"))
+        verdict = str(deepfake_result.get("voice_verdict", "Authentic Natural Human Voice"))
+        markers = list(deepfake_result.get("acoustic_markers", []))
+        is_ai = voice_type == "AI_GENERATED" or ai_pct >= 50.0 or bool(deepfake_result.get("is_deepfake", False))
+        is_pr = voice_type == "PRE_RECORDED" or pr_pct >= 50.0
+
+        return VoiceDetectionResult(
+            is_ai_generated=is_ai,
+            is_pre_recorded=is_pr,
+            voice_type=voice_type,
+            ai_voice_percentage=round(ai_pct, 1),
+            pre_recorded_percentage=round(pr_pct, 1),
+            human_authenticity_percentage=round(human_pct, 1),
+            voice_verdict=verdict,
+            acoustic_markers=markers,
+            deepfake_confidence=float(deepfake_result.get("confidence", 0.0)),
+            deepfake_verified=bool(deepfake_result.get("model_verified", False)),
+            duration_seconds=round(duration, 2),
+            sample_rate=sr if sr > 0 else 16000,
+            details=deepfake_result.get("metrics", {}),
         )
     finally:
         if os.path.exists(tmp_path):
