@@ -23,6 +23,7 @@ async def stream_audio_chunk(
     call_id: Optional[str] = Form(None),
     chunk_index: int = Form(0),
     caller_number: Optional[str] = Form(None),
+    transcript: Optional[str] = Form(None),
     current_user = Depends(get_current_user),
 ):
     """Receive audio chunk, transcribe, analyze, and return threat result."""
@@ -39,8 +40,11 @@ async def stream_audio_chunk(
         tmp_path = tmp.name
 
     try:
-        # Transcription
-        transcript = await transcribe_audio(tmp_path)
+        # Transcription (use client-supplied live speech recognition if available or run Whisper)
+        if not transcript or not transcript.strip():
+            transcript = await transcribe_audio(tmp_path)
+        if not transcript:
+            transcript = "[Audio chunk received]"
 
         # Deepfake detection
         deepfake_result = await detect_deepfake(tmp_path, audio_bytes)
@@ -118,6 +122,7 @@ async def stream_audio_chunk(
 async def analyze_uploaded_audio(
     audio: UploadFile = File(...),
     caller_number: Optional[str] = Form(None),
+    transcript: Optional[str] = Form(None),
     current_user = Depends(get_current_user),
 ):
     """Analyze a complete uploaded audio recording."""
@@ -133,7 +138,10 @@ async def analyze_uploaded_audio(
         tmp_path = tmp.name
 
     try:
-        transcript = await transcribe_audio(tmp_path)
+        if not transcript or not transcript.strip():
+            transcript = await transcribe_audio(tmp_path)
+        if not transcript:
+            transcript = "[Audio recording received - acoustic analysis processed]"
         deepfake_result = await detect_deepfake(tmp_path, audio_bytes)
         audio_features = extract_audio_features(tmp_path)
         scam_result = await detect_scam_tactics(transcript)

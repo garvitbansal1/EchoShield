@@ -214,13 +214,16 @@ def _classify_with_model(transcript: str) -> Dict[str, Any]:
 
         # Combine trained ML and contextual rule-based scores
         if contextual_score > 0:
-            final_prob = round(
+            # High-confidence contextual rules must not be diluted downwards
+            final_prob = max(contextual_score, round(
                 0.60 * trained_probability +
                 0.40 * contextual_score,
                 4
-            )
+            ))
         else:
-            final_prob = trained_probability
+            # If no contextual scam tactics or coercion exist, low background score (<0.35)
+            # must not flag benign conversation.
+            final_prob = trained_probability if trained_probability >= 0.35 else 0.0
 
         logger.info(
             f"[NLP] Trained ML={trained_probability:.3f}, "

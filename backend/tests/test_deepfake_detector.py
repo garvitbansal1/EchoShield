@@ -5,7 +5,12 @@ import sys
 import tempfile
 import numpy as np
 import scipy.io.wavfile as wav
-import torch
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    TORCH_AVAILABLE = False
 
 # Ensure backend is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -53,6 +58,7 @@ class TestDeepfakeDetector(unittest.TestCase):
         self.assertFalse(result_short["is_deepfake"])
         self.assertEqual(result_short["status"], "invalid_audio")
 
+    @unittest.skipUnless(TORCH_AVAILABLE, "PyTorch not installed")
     def test_verified_checkpoint_loading_and_inference(self):
         """When a valid checkpoint is provided, SpectrogramCNN must load and infer without torchvision/PIL errors."""
         model = df.SpectrogramCNN()

@@ -909,9 +909,35 @@
 
 <script>
 /* ════════════════════════════════════════════
-   CONFIG
+   CONFIG & DYNAMIC BACKEND RESOLUTION
 ════════════════════════════════════════════ */
-const API_BASE = 'http://127.0.0.1:8000';
+// Check for URL query param override: e.g. ?api=https://my-backend.vercel.app
+const urlParams = new URLSearchParams(window.location.search);
+const queryApi = urlParams.get('api');
+if (queryApi) {
+  localStorage.setItem('echoshield_api_url', queryApi.replace(/\/+$/, ''));
+}
+
+function getApiBase() {
+  const custom = localStorage.getItem('echoshield_api_url');
+  if (custom) return custom.replace(/\/+$/, '');
+
+  // If running from file:// or local static dev server (e.g. port 3000, 5500), target localhost:8000
+  const isLocalStaticDev = (
+    window.location.protocol === 'file:' ||
+    ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+     window.location.port && window.location.port !== '8000')
+  );
+
+  if (isLocalStaticDev) {
+    return 'http://127.0.0.1:8000';
+  }
+
+  // Running on Vercel or served by FastAPI: use same origin
+  return window.location.origin;
+}
+
+const API_BASE = getApiBase();
 let token = localStorage.getItem('echoshield_token');
 let currentUser = JSON.parse(localStorage.getItem('echoshield_user') || 'null');
 let gaugeChart, breakdownChart;
@@ -949,8 +975,40 @@ function switchTab(tab) {
 ════════════════════════════════════════════ */
 async function loginAsDemo() {
   closeModal();
-  token = 'demo_user_token_' + Date.now();
-  currentUser = { id: 'demo_user_1', username: 'DemoUser', email: 'demo@echoshield.ai', full_name: 'Security Operator' };
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'demo@echoshield.ai', password: 'EchoShieldDemo2026!' })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      token = data.access_token;
+      currentUser = data.user;
+    } else {
+      const signupRes = await fetch(`${API_BASE}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'demo@echoshield.ai',
+          username: 'DemoOperator',
+          password: 'EchoShieldDemo2026!',
+          full_name: 'Security Operator'
+        })
+      });
+      if (signupRes.ok) {
+        const signupData = await signupRes.json();
+        token = signupData.access_token;
+        currentUser = signupData.user;
+      } else {
+        token = 'demo_user_token_' + Date.now();
+        currentUser = { id: 'demo_user_1', username: 'DemoUser', email: 'demo@echoshield.ai', full_name: 'Security Operator' };
+      }
+    }
+  } catch (e) {
+    token = 'demo_user_token_' + Date.now();
+    currentUser = { id: 'demo_user_1', username: 'DemoUser', email: 'demo@echoshield.ai', full_name: 'Security Operator' };
+  }
   localStorage.setItem('echoshield_token', token);
   localStorage.setItem('echoshield_user', JSON.stringify(currentUser));
   showApp();
@@ -1784,6 +1842,9 @@ async function sendLiveAudio(audioBlob) {
   const formData = new FormData();
   // Using .wav extension so backend processes it correctly, even if it's webm
   formData.append('audio', audioBlob, 'live_demo.wav');
+  if (typeof liveTranscriptText === 'string' && liveTranscriptText.trim()) {
+    formData.append('transcript', liveTranscriptText.trim());
+  }
 
   try {
     const res = await fetch(`${API_BASE}/analyze-audio`, {

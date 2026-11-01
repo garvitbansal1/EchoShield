@@ -15,7 +15,9 @@
 ## 📁 Project Structure
 
 ```
-echoshield/
+├── api/                        # Vercel Serverless Function entrypoint
+│   ├── index.py                # FastAPI serverless handler
+│   └── requirements.txt        # Serverless-optimized Python dependencies
 ├── backend/                    # Python FastAPI backend
 │   ├── app/
 │   │   ├── main.py             # FastAPI application entry point
@@ -24,7 +26,7 @@ echoshield/
 │   │   │   ├── audio.py        # /stream-audio, /analyze-audio
 │   │   │   └── analysis.py     # /analyze, /call-logs, /stats
 │   │   ├── core/
-│   │   │   ├── database.py     # MongoDB Atlas connection (Motor + Beanie)
+│   │   │   ├── database.py     # MongoDB Atlas connection (with mock fallback)
 │   │   │   └── security.py     # JWT creation/validation, bcrypt hashing
 │   │   ├── models/
 │   │   │   ├── user.py         # User document model + Pydantic schemas
@@ -39,36 +41,44 @@ echoshield/
 │   ├── Dockerfile
 │   ├── run.py
 │   └── .env.example
-│
 ├── flutter-app/                # Flutter mobile app (Android + iOS)
-│   ├── lib/
-│   │   ├── main.dart           # App entry, theme, routing
-│   │   ├── screens/
-│   │   │   ├── splash_screen.dart
-│   │   │   ├── login_screen.dart    # Login + signup UI
-│   │   │   └── dashboard_screen.dart # Main dashboard + tabs
-│   │   ├── widgets/
-│   │   │   ├── threat_gauge.dart    # Animated arc gauge widget
-│   │   │   ├── threat_alert_overlay.dart  # Full-screen threat popup
-│   │   │   └── call_log_tile.dart   # Log entry + stat card
-│   │   └── services/
-│   │       ├── auth_service.dart    # JWT login/signup/logout
-│   │       ├── call_monitor_service.dart  # Audio streaming + threat detection
-│   │       ├── notification_service.dart  # Push notification handler
-│   │       └── api_service.dart     # REST client
-│   ├── android/
-│   │   └── app/src/main/AndroidManifest.xml
-│   └── pubspec.yaml
-│
+├── public/                     # Static assets for Vercel deployment
+│   └── index.html              # High-performance web dashboard
 ├── web-dashboard/              # Single-file web app
 │   └── index.html              # Landing page + full dashboard SPA
-│
+├── vercel.json                 # Vercel deployment & routing configuration
 └── docker-compose.yml          # One-command deployment
 ```
 
 ---
 
-## 🚀 Quick Start
+## ⚡ Deploy to Vercel (Instant Fullstack)
+
+EchoShield is pre-configured for seamless fullstack deployment on **Vercel** with zero complex setup.
+
+### Option A: Via GitHub (Recommended)
+1. Push this repository to **GitHub**.
+2. Go to [vercel.com](https://vercel.com) and click **"Add New Project"**.
+3. Import your **echoshield** repository.
+4. Leave the **Build Command** and **Output Directory** empty (Vercel uses `vercel.json` automatically).
+5. (Optional) In **Environment Variables**, add:
+   - `MONGO_URI`: Your MongoDB Atlas connection string (e.g. `mongodb+srv://...`). If omitted, EchoShield automatically runs in high-speed in-memory mock mode.
+   - `JWT_SECRET_KEY`: A 32+ character random secret.
+   - `ANTHROPIC_API_KEY`: (Optional) For AI negotiator generation.
+6. Click **Deploy**. Your app is live at `https://<your-project>.vercel.app`!
+
+### Option B: Via Vercel CLI
+```bash
+# 1. Install Vercel CLI
+npm install -g vercel
+
+# 2. Deploy from the project root
+vercel --prod
+```
+
+---
+
+## 🚀 Quick Start (Local Development)
 
 ### Prerequisites
 

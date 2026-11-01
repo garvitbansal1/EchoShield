@@ -16,6 +16,8 @@ soundfile
 websockets
 
 # AI / ML
+scikit-learn
+joblib
 openai-whisper
 torch
 torchaudio

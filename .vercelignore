@@ -1,0 +1,13 @@
+flutter-app/
+.vscode/
+.git/
+*.docx
+*.md
+docker-compose.yml
+backend/Dockerfile
+backend/tests/
+__pycache__/
+*.pyc
+venv/
+.venv/
+

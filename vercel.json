@@ -1,0 +1,54 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/auth/(.*)",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/stats",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/call-logs",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/analyze",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/analyze-audio",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/stream-audio",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/docs",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/web-dashboard/(.*)",
+      "destination": "/public/$1"
+    },
+    {
+      "source": "/",
+      "destination": "/public/index.html"
+    }
+  ]
+}
+

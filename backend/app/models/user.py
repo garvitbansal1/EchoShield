@@ -1,4 +1,8 @@
-from beanie import Document
+try:
+    from beanie import Document
+except ImportError:
+    class Document:  # type: ignore
+        pass
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime

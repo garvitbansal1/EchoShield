@@ -47,6 +47,28 @@ def decode_token(token: str) -> dict:
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from app.core.database import User
     token = credentials.credentials
+
+    # Support demo mode access seamlessly
+    if token.startswith("demo_user_token_") or token == "demo_token":
+        try:
+            demo_user = await User.find_one({"email": "demo@echoshield.ai"})
+            if demo_user:
+                return demo_user
+        except Exception:
+            pass
+        from app.core.mock_db import MockUser
+        demo = MockUser(
+            user_id="demo_user_1",
+            email="demo@echoshield.ai",
+            username="DemoUser",
+            full_name="Security Operator",
+        )
+        try:
+            await demo.insert()
+        except Exception:
+            pass
+        return demo
+
     payload = decode_token(token)
     user_id = payload.get("sub")
     if not user_id:
@@ -59,5 +81,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user = None
         
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        from app.core.mock_db import MockUser
+        user = await MockUser.get(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
     return user
