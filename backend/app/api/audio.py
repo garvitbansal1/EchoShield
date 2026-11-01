@@ -34,8 +34,13 @@ async def stream_audio_chunk(
     if not audio_bytes or len(audio_bytes) < 44:
         raise HTTPException(status_code=400, detail="Empty or invalid audio data received")
 
-    # Save chunk temporarily for processing
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+    # Save chunk temporarily for processing preserving true extension
+    original_name = audio.filename or "chunk.wav"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in [".wav", ".mp3", ".ogg", ".webm", ".m4a", ".flac", ".aac"]:
+        ext = ".wav"
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
@@ -72,6 +77,8 @@ async def stream_audio_chunk(
         ai_voice_pct = deepfake_result.get("ai_voice_percentage", audio_features.get("ai_voice_percentage", 0.0))
         voice_type = deepfake_result.get("voice_type", audio_features.get("voice_type", "NATURAL_HUMAN"))
         pre_rec_prob = deepfake_result.get("pre_recorded_probability", audio_features.get("pre_recorded_probability", 0.0))
+        pre_rec_pct = deepfake_result.get("pre_recorded_percentage", audio_features.get("pre_recorded_percentage", 0.0))
+        human_auth_pct = deepfake_result.get("human_authenticity_percentage", audio_features.get("human_authenticity_percentage", 100.0))
         voice_verdict = deepfake_result.get("voice_verdict", audio_features.get("voice_verdict", "Authentic Natural Human Voice"))
         acoustic_markers = deepfake_result.get("acoustic_markers", audio_features.get("acoustic_markers", []))
 
@@ -125,6 +132,8 @@ async def stream_audio_chunk(
             threat_factors=scam_result.get("threat_factors", []),
             deepfake_verified=deepfake_result.get("model_verified", False),
             ai_voice_percentage=ai_voice_pct,
+            pre_recorded_percentage=pre_rec_pct,
+            human_authenticity_percentage=human_auth_pct,
             voice_type=voice_type,
             pre_recorded_probability=pre_rec_prob,
             voice_verdict=voice_verdict,
@@ -153,7 +162,12 @@ async def analyze_uploaded_audio(
     if not audio_bytes or len(audio_bytes) < 44:
         raise HTTPException(status_code=400, detail="Empty or invalid audio data received")
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+    original_name = audio.filename or "upload.wav"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in [".wav", ".mp3", ".ogg", ".webm", ".m4a", ".flac", ".aac"]:
+        ext = ".wav"
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
@@ -179,6 +193,8 @@ async def analyze_uploaded_audio(
         ai_voice_pct = deepfake_result.get("ai_voice_percentage", audio_features.get("ai_voice_percentage", 0.0))
         voice_type = deepfake_result.get("voice_type", audio_features.get("voice_type", "NATURAL_HUMAN"))
         pre_rec_prob = deepfake_result.get("pre_recorded_probability", audio_features.get("pre_recorded_probability", 0.0))
+        pre_rec_pct = deepfake_result.get("pre_recorded_percentage", audio_features.get("pre_recorded_percentage", 0.0))
+        human_auth_pct = deepfake_result.get("human_authenticity_percentage", audio_features.get("human_authenticity_percentage", 100.0))
         voice_verdict = deepfake_result.get("voice_verdict", audio_features.get("voice_verdict", "Authentic Natural Human Voice"))
         acoustic_markers = deepfake_result.get("acoustic_markers", audio_features.get("acoustic_markers", []))
 
@@ -197,6 +213,8 @@ async def analyze_uploaded_audio(
             audio_chunks_received=1,
             alert_sent=threat["alert_required"],
             ai_voice_percentage=ai_voice_pct,
+            pre_recorded_percentage=pre_rec_pct,
+            human_authenticity_percentage=human_auth_pct,
             voice_type=voice_type,
             pre_recorded_probability=pre_rec_prob,
             voice_verdict=voice_verdict,
@@ -223,6 +241,8 @@ async def analyze_uploaded_audio(
             threat_factors=scam_result.get("threat_factors", []),
             deepfake_verified=deepfake_result.get("model_verified", False),
             ai_voice_percentage=ai_voice_pct,
+            pre_recorded_percentage=pre_rec_pct,
+            human_authenticity_percentage=human_auth_pct,
             voice_type=voice_type,
             pre_recorded_probability=pre_rec_prob,
             voice_verdict=voice_verdict,
@@ -250,7 +270,12 @@ async def detect_voice_authenticity_endpoint(
     if not audio_bytes or len(audio_bytes) < 44:
         raise HTTPException(status_code=400, detail="Empty or invalid audio data received")
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+    original_name = audio.filename or "upload.wav"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in [".wav", ".mp3", ".ogg", ".webm", ".m4a", ".flac", ".aac"]:
+        ext = ".wav"
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 

@@ -5,11 +5,12 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from app.ml.audio_features import extract_audio_features
+from app.ml.voice_classifier_service import classify_voice_audio, is_model_available
 
 logger = logging.getLogger(__name__)
 
 # Thread pool for blocking operations
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=4)
 
 # Try PyTorch and librosa
 try:
@@ -21,7 +22,7 @@ try:
     logger.info("PyTorch and librosa available for deepfake detection.")
 except (ImportError, OSError) as e:
     TORCH_AVAILABLE = False
-    logger.warning(f"PyTorch/librosa not available ({type(e).__name__}). Deepfake detection disabled.")
+    logger.info(f"PyTorch not available ({type(e).__name__}). Using acoustic ML ensemble.")
 
 
 class SpectrogramCNN(nn.Module if TORCH_AVAILABLE else object):
@@ -74,13 +75,19 @@ def _get_model_status() -> tuple[Optional[Any], bool]:
 
     _INIT_ATTEMPTED = True
 
-    if not TORCH_AVAILABLE:
+    model_path = os.getenv("DEEPFAKE_MODEL_PATH", "").strip()
+    if not model_path:
         _MODEL = None
         _MODEL_VERIFIED = False
         return None, False
 
-    model_path = os.getenv("DEEPFAKE_MODEL_PATH", "").strip()
-    if model_path and os.path.exists(model_path):
+    if not os.path.exists(model_path):
+        _MODEL = None
+        _MODEL_VERIFIED = False
+        return None, False
+
+    # Check if PyTorch checkpoint
+    if TORCH_AVAILABLE and model_path.endswith((".pt", ".pth")):
         try:
             model = SpectrogramCNN()
             state_dict = torch.load(model_path, map_location="cpu")
@@ -88,61 +95,28 @@ def _get_model_status() -> tuple[Optional[Any], bool]:
             model.eval()
             _MODEL = model
             _MODEL_VERIFIED = True
-            logger.info(f"Loaded verified deepfake model from {model_path}")
+            logger.info(f"Loaded verified deepfake PyTorch model from {model_path}")
             return _MODEL, True
         except Exception as e:
             logger.error(f"Failed to load trained deepfake model from {model_path}: {e}")
             _MODEL = None
             _MODEL_VERIFIED = False
             return None, False
-    else:
-        logger.info(
-            "No trained DEEPFAKE_MODEL_PATH configured. "
-            "Deepfake detector will explicitly report unverified status rather than classifying with random weights."
-        )
-        _MODEL = None
-        _MODEL_VERIFIED = False
-        return None, False
 
+    # Check if scikit-learn pickle model
+    if model_path.endswith(".pkl") and is_model_available():
+        _MODEL = "ML_ACOUSTIC_CLASSIFIER"
+        _MODEL_VERIFIED = True
+        return _MODEL, True
 
-def _preprocess_audio(audio_path: str) -> Optional[np.ndarray]:
-    """Extract mel-spectrogram with duration and size validation."""
-    if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 100:
-        return None
-
-    try:
-        y, sr = librosa.load(audio_path, sr=16000, mono=True, duration=10.0)
-        if len(y) < int(sr * 0.25):  # Less than 250ms of audio
-            return None
-        mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
-        mel_db = librosa.power_to_db(mel_spec, ref=np.max)
-        return mel_db
-    except Exception as e:
-        logger.warning(f"Audio preprocessing error: {e}")
-        return None
-
-
-def _spectrogram_to_tensor(mel_db: np.ndarray) -> "torch.Tensor":
-    """
-    Normalize decibel mel-spectrogram and resize using PyTorch interpolation.
-    Does not require PIL or torchvision.
-    """
-    min_val, max_val = mel_db.min(), mel_db.max()
-    if max_val - min_val > 1e-5:
-        norm_mel = (mel_db - min_val) / (max_val - min_val)
-    else:
-        norm_mel = np.zeros_like(mel_db)
-
-    # Shape: (1, 1, n_mels, time_frames)
-    tensor = torch.from_numpy(norm_mel.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-    # Resize to fixed (1, 1, 128, 128)
-    tensor = F.interpolate(tensor, size=(128, 128), mode="bilinear", align_corners=False)
-    return tensor
+    _MODEL = None
+    _MODEL_VERIFIED = False
+    return None, False
 
 
 def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, Any]:
     """Synchronous deepfake detection with verified checkpoint checking and acoustic feature analysis."""
-    # Validate audio bytes/file first
+    # 1. Validate audio input
     if not audio_bytes or len(audio_bytes) < 100 or not os.path.exists(audio_path):
         return {
             "is_deepfake": False,
@@ -161,12 +135,14 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             "metrics": {},
         }
 
-    # Extract acoustic feature signatures (RMS variance, spectral flatness, HF roll-off, etc.)
+    # 2. Extract acoustic features using trained ML model
     features = extract_audio_features(audio_path=audio_path, audio_bytes=audio_bytes)
 
+    # 3. Check model checkpoint configuration
     model, is_verified = _get_model_status()
 
-    # If no verified checkpoint exists, report unverified model status while exposing acoustic heuristics
+    # If no explicit DEEPFAKE_MODEL_PATH checkpoint configured, report unverified model status
+    # while exposing authentic ML acoustic classification
     if not is_verified or model is None:
         return {
             "is_deepfake": False,
@@ -183,11 +159,36 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             "voice_verdict": features.get("voice_verdict", "Authentic Natural Human Voice"),
             "acoustic_markers": features.get("acoustic_markers", []),
             "metrics": features.get("metrics", {}),
+            "is_uncertain": features.get("is_uncertain", False),
         }
 
+    # If ML acoustic classifier model configured as checkpoint
+    if model == "ML_ACOUSTIC_CLASSIFIER":
+        ai_prob = float(features.get("ai_voice_probability", 0.0))
+        ai_pct = float(features.get("ai_voice_percentage", 0.0))
+        is_deepfake = bool(features.get("voice_type") == "AI_GENERATED" or ai_prob >= 0.50)
+        return {
+            "is_deepfake": is_deepfake,
+            "confidence": round(ai_prob, 4),
+            "status": "verified",
+            "model_verified": True,
+            "details": f"Verified ML voice model inference complete (confidence: {ai_prob:.2f})",
+            "ai_voice_percentage": ai_pct,
+            "ai_voice_probability": round(ai_prob, 4),
+            "voice_type": features.get("voice_type", "NATURAL_HUMAN"),
+            "pre_recorded_probability": features.get("pre_recorded_probability", 0.0),
+            "pre_recorded_percentage": features.get("pre_recorded_percentage", 0.0),
+            "human_authenticity_percentage": features.get("human_authenticity_percentage", 100.0),
+            "voice_verdict": features.get("voice_verdict", "Authentic Natural Human Voice"),
+            "acoustic_markers": features.get("acoustic_markers", []),
+            "metrics": features.get("metrics", {}),
+            "is_uncertain": features.get("is_uncertain", False),
+        }
+
+    # If PyTorch CNN checkpoint
     try:
-        mel_db = _preprocess_audio(audio_path)
-        if mel_db is None:
+        y, sr = librosa.load(audio_path, sr=16000, mono=True, duration=10.0)
+        if len(y) < int(sr * 0.25):
             return {
                 "is_deepfake": False,
                 "confidence": 0.0,
@@ -205,14 +206,24 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
                 "metrics": features.get("metrics", {}),
             }
 
-        tensor = _spectrogram_to_tensor(mel_db)
+        mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
+        mel_db = librosa.power_to_db(mel_spec, ref=np.max)
+
+        min_val, max_val = mel_db.min(), mel_db.max()
+        if max_val - min_val > 1e-5:
+            norm_mel = (mel_db - min_val) / (max_val - min_val)
+        else:
+            norm_mel = np.zeros_like(mel_db)
+
+        tensor = torch.from_numpy(norm_mel.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+        tensor = F.interpolate(tensor, size=(128, 128), mode="bilinear", align_corners=False)
+
         with torch.no_grad():
             raw_confidence = float(model(tensor).item())
 
         threshold = float(os.getenv("DEEPFAKE_THRESHOLD", "0.6"))
         is_deepfake = raw_confidence >= threshold
 
-        # Harmonize CNN model score with acoustic feature analysis
         ai_prob = max(raw_confidence, features.get("ai_voice_probability", 0.0))
         ai_pct = round(ai_prob * 100, 1)
 
@@ -222,8 +233,6 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
             voice_verdict = f"Likely AI-Generated Voice ({ai_pct:.0f}% synthetic confidence)"
         else:
             voice_verdict = features.get("voice_verdict", "Authentic Natural Human Voice")
-
-        logger.info(f"Verified deepfake score: {raw_confidence:.4f}, threshold: {threshold}, is_deepfake: {is_deepfake}")
 
         return {
             "is_deepfake": is_deepfake,
@@ -262,54 +271,6 @@ def _deepfake_detection_sync(audio_path: str, audio_bytes: bytes) -> Dict[str, A
 
 
 async def detect_deepfake(audio_path: str, audio_bytes: bytes) -> Dict[str, Any]:
-    """
-    Analyze audio for deepfake/synthetic voice artifacts.
-    Returns confidence score, boolean flag, and verification metadata.
-    """
-    try:
-        loop = asyncio.get_event_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(
-                _executor,
-                _deepfake_detection_sync,
-                audio_path,
-                audio_bytes,
-            ),
-            timeout=10.0,
-        )
-        return result
-    except asyncio.TimeoutError:
-        logger.error("Deepfake detection timed out")
-        return {
-            "is_deepfake": False,
-            "confidence": 0.0,
-            "status": "timeout",
-            "model_verified": False,
-            "details": "Detection timed out after 10s",
-        }
-    except Exception as e:
-        logger.error(f"Deepfake detection error: {e}")
-        return {
-            "is_deepfake": False,
-            "confidence": 0.0,
-            "status": "error",
-            "model_verified": False,
-            "details": str(e),
-        }
-
-
-async def analyze_voice_authenticity(audio_path: str, audio_bytes: bytes = b"") -> Dict[str, Any]:
-    """
-    Complete analysis of voice authenticity.
-    Determines whether audio is AI-generated (synthetic voice/clone),
-    pre-recorded (automated robocall/IVR), or natural human voice,
-    with exact percentage confidence levels.
-    """
-    if not audio_bytes and audio_path and os.path.exists(audio_path):
-        try:
-            with open(audio_path, "rb") as f:
-                audio_bytes = f.read()
-        except Exception:
-            pass
-
-    return await detect_deepfake(audio_path, audio_bytes)
+    """Asynchronous wrapper for deepfake detection offloaded to thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_executor, _deepfake_detection_sync, audio_path, audio_bytes)

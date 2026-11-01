@@ -33,6 +33,8 @@ class CallLog(Document):
     audio_chunks_received: int = 0
     alert_sent: bool = False
     ai_voice_percentage: float = 0.0
+    pre_recorded_percentage: float = 0.0
+    human_authenticity_percentage: float = 0.0
     voice_type: str = "NATURAL_HUMAN"
     pre_recorded_probability: float = 0.0
     voice_verdict: Optional[str] = None
@@ -59,6 +61,8 @@ class ThreatResult(BaseModel):
     threat_factors: List[str] = Field(default_factory=list)
     deepfake_verified: bool = False
     ai_voice_percentage: float = 0.0
+    pre_recorded_percentage: float = 0.0
+    human_authenticity_percentage: float = 0.0
     voice_type: str = "NATURAL_HUMAN"
     pre_recorded_probability: float = 0.0
     voice_verdict: Optional[str] = None

@@ -1,0 +1,188 @@
+{
+  "model_name": "HistGradientBoosting",
+  "calibrated": true,
+  "calibration_method": "Platt Scaling (Sigmoid)",
+  "feature_count": 91,
+  "feature_names": [
+    "mfcc_0_mean",
+    "mfcc_1_mean",
+    "mfcc_2_mean",
+    "mfcc_3_mean",
+    "mfcc_4_mean",
+    "mfcc_5_mean",
+    "mfcc_6_mean",
+    "mfcc_7_mean",
+    "mfcc_8_mean",
+    "mfcc_9_mean",
+    "mfcc_10_mean",
+    "mfcc_11_mean",
+    "mfcc_12_mean",
+    "mfcc_13_mean",
+    "mfcc_14_mean",
+    "mfcc_15_mean",
+    "mfcc_16_mean",
+    "mfcc_17_mean",
+    "mfcc_18_mean",
+    "mfcc_19_mean",
+    "mfcc_0_std",
+    "mfcc_1_std",
+    "mfcc_2_std",
+    "mfcc_3_std",
+    "mfcc_4_std",
+    "mfcc_5_std",
+    "mfcc_6_std",
+    "mfcc_7_std",
+    "mfcc_8_std",
+    "mfcc_9_std",
+    "mfcc_10_std",
+    "mfcc_11_std",
+    "mfcc_12_std",
+    "mfcc_13_std",
+    "mfcc_14_std",
+    "mfcc_15_std",
+    "mfcc_16_std",
+    "mfcc_17_std",
+    "mfcc_18_std",
+    "mfcc_19_std",
+    "delta_mfcc_0_std",
+    "delta_mfcc_1_std",
+    "delta_mfcc_2_std",
+    "delta_mfcc_3_std",
+    "delta_mfcc_4_std",
+    "delta_mfcc_5_std",
+    "delta_mfcc_6_std",
+    "delta_mfcc_7_std",
+    "delta_mfcc_8_std",
+    "delta_mfcc_9_std",
+    "delta2_mfcc_0_std",
+    "delta2_mfcc_1_std",
+    "delta2_mfcc_2_std",
+    "delta2_mfcc_3_std",
+    "delta2_mfcc_4_std",
+    "spectral_centroid_mean",
+    "spectral_centroid_std",
+    "spectral_bandwidth_mean",
+    "spectral_bandwidth_std",
+    "spectral_rolloff_85_mean",
+    "spectral_rolloff_85_std",
+    "spectral_rolloff_95_mean",
+    "spectral_rolloff_95_std",
+    "spectral_flatness_mean",
+    "spectral_flatness_std",
+    "spectral_contrast_b0_mean",
+    "spectral_contrast_b1_mean",
+    "spectral_contrast_b2_mean",
+    "spectral_contrast_b3_mean",
+    "spectral_contrast_b4_mean",
+    "spectral_contrast_b5_mean",
+    "spectral_contrast_b0_std",
+    "spectral_contrast_b1_std",
+    "spectral_contrast_b2_std",
+    "spectral_contrast_b3_std",
+    "spectral_contrast_b4_std",
+    "spectral_contrast_b5_std",
+    "zcr_mean",
+    "zcr_std",
+    "rms_mean",
+    "rms_std",
+    "rms_var",
+    "band_ratio_sub300",
+    "band_ratio_telephony_300_3400",
+    "band_ratio_above_3800",
+    "voiced_fraction",
+    "f0_mean",
+    "f0_std",
+    "f0_cov",
+    "pitch_jitter",
+    "amplitude_shimmer"
+  ],
+  "classes": [
+    "AI_GENERATED",
+    "ROBOCALL_IVR",
+    "NATURAL_HUMAN"
+  ],
+  "test_metrics": {
+    "accuracy": 0.9889,
+    "macro_precision": 0.9892,
+    "macro_recall": 0.9889,
+    "macro_f1": 0.9889,
+    "confusion_matrix": [
+      [
+        29,
+        0,
+        1
+      ],
+      [
+        0,
+        30,
+        0
+      ],
+      [
+        0,
+        0,
+        30
+      ]
+    ],
+    "per_class": {
+      "AI_GENERATED": {
+        "precision": 1.0,
+        "recall": 0.9667,
+        "f1_score": 0.9831,
+        "support": 30
+      },
+      "ROBOCALL_IVR": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "support": 30
+      },
+      "NATURAL_HUMAN": {
+        "precision": 0.9677,
+        "recall": 1.0,
+        "f1_score": 0.9836,
+        "support": 30
+      }
+    },
+    "false_positives": {
+      "human_falsely_flagged_as_ai": 0,
+      "ivr_falsely_flagged_as_ai": 0,
+      "ai_falsely_passed_as_human": 1
+    },
+    "uncertain_cases_test": 1
+  },
+  "model_comparison": {
+    "HistGradientBoosting": {
+      "val_accuracy": 0.9889,
+      "val_precision_macro": 0.9892,
+      "val_recall_macro": 0.9889,
+      "val_f1_macro": 0.9889,
+      "train_time_sec": 0.556
+    },
+    "RandomForest": {
+      "val_accuracy": 0.9778,
+      "val_precision_macro": 0.9792,
+      "val_recall_macro": 0.9778,
+      "val_f1_macro": 0.9778,
+      "train_time_sec": 0.238
+    },
+    "MLP_NeuralNet": {
+      "val_accuracy": 0.9333,
+      "val_precision_macro": 0.9416,
+      "val_recall_macro": 0.9333,
+      "val_f1_macro": 0.9319,
+      "train_time_sec": 0.097
+    }
+  },
+  "dataset_summary": {
+    "total_samples": 600,
+    "train_samples": 420,
+    "val_samples": 90,
+    "test_samples": 90,
+    "class_distribution": {
+      "AI_GENERATED": 200,
+      "ROBOCALL_IVR": 200,
+      "NATURAL_HUMAN": 200
+    }
+  },
+  "training_timestamp": "2026-11-01T10:10:15Z"
+}

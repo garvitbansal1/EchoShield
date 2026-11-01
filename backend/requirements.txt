@@ -24,4 +24,5 @@ torchaudio
 transformers
 accelerate
 pandas
+av
 
